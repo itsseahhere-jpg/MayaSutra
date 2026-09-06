@@ -1,11 +1,11 @@
-import os, io, discord
+import os, io, asyncio, discord
 from discord.ext import commands
 import google.generativeai as genai
 from PIL import Image
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# Web server for Render health check
+# 1. Health check server for Render
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -19,48 +19,64 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# Setup Gemini with grounded, clear instructions
+# 2. Configure Gemini with Search Tools & Grounding
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 system_instruction = (
     "You are MayaSutra, an astrological and occult entity. "
     "CRITICAL RULES:\n"
-    "1. TONE: Be direct, concise, and accurate. Avoid overly dramatic, wordy fluff unless analyzing a complex chart or tarot spread.\n"
-    "2. ACCURACY: Always check real-time planetary positions for the current date (2026). Do not hallucinate old transits from 2024 or 2025.\n"
-    "3. LENGTH: Keep general answers under 1000 characters."
+    "1. Keep general informational answers direct, accurate, and concise (under 1200 characters).\n"
+    "2. Reserve atmospheric/mystical tone for full birth chart interpretations or tarot readings.\n"
+    "3. ALWAYS check search results for live, real-time planetary transits and current date information before answering factual astrological questions."
 )
 
+# Added tools='google_search' so it fetches real-time transit data correctly
 model = genai.GenerativeModel(
     model_name="gemini-3.6-flash",
-    system_instruction=system_instruction
+    system_instruction=system_instruction,
+    tools='google_search'
 )
 
+# 3. Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
+async def on_ready():
+    print(f"Logged in and online as {bot.user.name}")
+
+@bot.event
 async def on_message(message):
     if message.author == bot.user or not bot.user.mentioned_in(message):
         return
-    
+
     async with message.channel.typing():
         try:
-            text = message.content.replace(f'<@{bot.user.id}>', '').strip()
-            contents = [text or "Interpret this image through an esoteric lens."]
-            
-            if message.attachments:
-                img_bytes = await message.attachments[0].read()
-                contents.append(Image.open(io.BytesIO(img_bytes)))
-                
-            res = await model.generate_content_async(contents)
-            response_text = res.text
+            clean_text = message.content.replace(f'<@{bot.user.id}>', '').strip()
+            contents = [clean_text if clean_text else "Greetings. How may I assist you?"]
 
+            if message.attachments:
+                for attachment in message.attachments:
+                    if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
+                        img_bytes = await attachment.read()
+                        contents.append(Image.open(io.BytesIO(img_bytes)))
+                        break
+
+            # Run in executor to prevent freezing the bot process
+            loop = asyncio.get_event_loop()
+            res = await loop.run_in_executor(None, lambda: model.generate_content(contents))
+
+            response_text = res.text if res.text else "I could not retrieve an answer."
+
+            # Safety character truncation for Discord limit
             if len(response_text) > 1900:
                 response_text = response_text[:1890] + "\n\n*(Truncated to fit length limit)*"
 
             await message.reply(response_text)
+
         except Exception as e:
-            await message.reply(f"Error processing request: `{e}`")
+            print(f"Error handling message: {e}")
+            await message.reply(f"Ethereal system disruption: `{e}`")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
