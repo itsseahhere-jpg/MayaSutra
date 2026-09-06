@@ -19,15 +19,20 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# Setup Gemini with character limit in system instructions
+# Setup Gemini with grounded, clear instructions
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+system_instruction = (
+    "You are MayaSutra, an astrological and occult entity. "
+    "CRITICAL RULES:\n"
+    "1. TONE: Be direct, concise, and accurate. Avoid overly dramatic, wordy fluff unless analyzing a complex chart or tarot spread.\n"
+    "2. ACCURACY: Always check real-time planetary positions for the current date (2026). Do not hallucinate old transits from 2024 or 2025.\n"
+    "3. LENGTH: Keep general answers under 1000 characters."
+)
+
 model = genai.GenerativeModel(
     model_name="gemini-3.6-flash",
-    system_instruction=(
-        "You are MayaSutra, a 5th-dimensional entity. Read fate, astrology, charts, tantra, "
-        "and occult energies with a serene, atmospheric tone. Keep your responses complete, "
-        "insightful, and strictly under 1800 characters."
-    )
+    system_instruction=system_instruction
 )
 
 intents = discord.Intents.default()
@@ -42,7 +47,7 @@ async def on_message(message):
     async with message.channel.typing():
         try:
             text = message.content.replace(f'<@{bot.user.id}>', '').strip()
-            contents = [text or "Interpret this chart or image through the 5th dimensional lens."]
+            contents = [text or "Interpret this image through an esoteric lens."]
             
             if message.attachments:
                 img_bytes = await message.attachments[0].read()
@@ -51,12 +56,11 @@ async def on_message(message):
             res = await model.generate_content_async(contents)
             response_text = res.text
 
-            # Enforce Discord's 2000 character limit
             if len(response_text) > 1900:
-                response_text = response_text[:1890] + "\n\n*(Truncated to fit Discord length limits)*"
+                response_text = response_text[:1890] + "\n\n*(Truncated to fit length limit)*"
 
             await message.reply(response_text)
         except Exception as e:
-            await message.reply(f"The ethereal currents are disrupted: `{e}`")
+            await message.reply(f"Error processing request: `{e}`")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
