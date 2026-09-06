@@ -1,11 +1,11 @@
-import os, io, asyncio, discord
+import os, io, discord
 from discord.ext import commands
 import google.generativeai as genai
 from PIL import Image
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# Dummy Web Server to satisfy Render Web Service port check
+# Web server for Render health check
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -19,7 +19,7 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# Discord Bot Setup
+# Setup Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel(
     model_name="gemini-2.0-flash",
@@ -36,14 +36,18 @@ async def on_message(message):
         return
     
     async with message.channel.typing():
-        text = message.content.replace(f'<@{bot.user.id}>', '').strip()
-        contents = [text or "Interpret this chart or image through the 5th dimensional lens."]
-        
-        if message.attachments:
-            img_bytes = await message.attachments[0].read()
-            contents.append(Image.open(io.BytesIO(img_bytes)))
+        try:
+            text = message.content.replace(f'<@{bot.user.id}>', '').strip()
+            contents = [text or "Interpret this chart or image through the 5th dimensional lens."]
             
-        res = model.generate_content(contents)
-        await message.reply(res.text)
+            if message.attachments:
+                img_bytes = await message.attachments[0].read()
+                contents.append(Image.open(io.BytesIO(img_bytes)))
+                
+            # Asynchronous call prevents Discord timeout
+            res = await model.generate_content_async(contents)
+            await message.reply(res.text)
+        except Exception as e:
+            await message.reply(f"The ethereal currents are disrupted: `{e}`")
 
 bot.run(os.getenv("DISCORD_TOKEN"))
