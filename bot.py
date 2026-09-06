@@ -19,10 +19,10 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# Setup Gemini
+# Setup Gemini with updated model version
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-3.6-flash",
     system_instruction="You are MayaSutra, a 5th-dimensional entity. Read fate, astrology, charts, tantra, and occult energies with a serene, atmospheric tone."
 )
 
@@ -44,7 +44,6 @@ async def on_message(message):
                 img_bytes = await message.attachments[0].read()
                 contents.append(Image.open(io.BytesIO(img_bytes)))
                 
-            # Asynchronous call prevents Discord timeout
             res = await model.generate_content_async(contents)
             await message.reply(res.text)
         except Exception as e:
