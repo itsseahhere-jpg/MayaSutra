@@ -19,11 +19,15 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# Setup Gemini with updated model version
+# Setup Gemini with character limit in system instructions
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel(
     model_name="gemini-3.6-flash",
-    system_instruction="You are MayaSutra, a 5th-dimensional entity. Read fate, astrology, charts, tantra, and occult energies with a serene, atmospheric tone."
+    system_instruction=(
+        "You are MayaSutra, a 5th-dimensional entity. Read fate, astrology, charts, tantra, "
+        "and occult energies with a serene, atmospheric tone. Keep your responses complete, "
+        "insightful, and strictly under 1800 characters."
+    )
 )
 
 intents = discord.Intents.default()
@@ -45,7 +49,13 @@ async def on_message(message):
                 contents.append(Image.open(io.BytesIO(img_bytes)))
                 
             res = await model.generate_content_async(contents)
-            await message.reply(res.text)
+            response_text = res.text
+
+            # Enforce Discord's 2000 character limit
+            if len(response_text) > 1900:
+                response_text = response_text[:1890] + "\n\n*(Truncated to fit Discord length limits)*"
+
+            await message.reply(response_text)
         except Exception as e:
             await message.reply(f"The ethereal currents are disrupted: `{e}`")
 
