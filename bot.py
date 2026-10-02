@@ -5,7 +5,7 @@ from PIL import Image
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# 1. Health check server for Render Web Service (if used as Web Service)
+# 1. Health check server for Render
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -35,7 +35,7 @@ model = genai.GenerativeModel(
     system_instruction=system_instruction
 )
 
-# 3. Discord Bot Setup with Auto-Reconnect
+# 3. Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -65,12 +65,9 @@ async def on_message(message):
                         contents.append(Image.open(io.BytesIO(img_bytes)))
                         break
 
-            # Execute Gemini API call with explicit timeout protection
+            # Execute Gemini API call cleanly without artificial timeout cuts
             loop = asyncio.get_event_loop()
-            res = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: model.generate_content(contents)),
-                timeout=25.0
-            )
+            res = await loop.run_in_executor(None, lambda: model.generate_content(contents))
 
             response_text = res.text if res.text else "I could not retrieve an answer."
 
@@ -79,11 +76,8 @@ async def on_message(message):
 
             await message.reply(response_text)
 
-        except asyncio.TimeoutError:
-            await message.reply("The cosmic transmission timed out. Please try asking again.")
         except Exception as e:
             print(f"Error handling message: {e}")
             await message.reply(f"System alert: `{e}`")
 
-# Run bot with automatic reconnection
 bot.run(os.getenv("DISCORD_TOKEN"), reconnect=True)
