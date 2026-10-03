@@ -30,7 +30,7 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# Switched to gemini-2.0-flash for high daily free quotas
+# Active model
 model = genai.GenerativeModel(
     model_name="gemini-2.0-flash",
     system_instruction=system_instruction
@@ -52,12 +52,17 @@ async def on_message(message):
 
     async with message.channel.typing():
         try:
+            # Clean up mentions
             clean_text = message.content.replace(f'<@{bot.user.id}>', '').strip()
             
+            # If user tagged without adding real text or an image
             if not clean_text and not message.attachments:
-                contents = ["Greetings traveller. I am MayaSutra, listening from the 5th dimension. How may I guide your path today?"]
-            else:
-                contents = [clean_text if clean_text else "Please analyze the attached image."]
+                await message.reply("Greetings traveller. I am MayaSutra, listening from the 5th dimension. How may I guide your path today?")
+                return
+
+            contents = []
+            if clean_text:
+                contents.append(clean_text)
 
             if message.attachments:
                 for attachment in message.attachments:
@@ -66,8 +71,12 @@ async def on_message(message):
                         contents.append(Image.open(io.BytesIO(img_bytes)))
                         break
 
-            # Execute Gemini API call cleanly
-            loop = asyncio.get_event_loop()
+            # Fallback check to ensure payload is never empty
+            if not contents:
+                contents = ["Hello"]
+
+            # Execute Gemini API call safely using get_running_loop
+            loop = asyncio.get_running_loop()
             res = await loop.run_in_executor(None, lambda: model.generate_content(contents))
 
             response_text = res.text if res.text else "I could not retrieve an answer."
@@ -82,6 +91,6 @@ async def on_message(message):
             if "429" in str(e):
                 await message.reply("The cosmic transmission is cooling down (rate limit reached). Please try again in a few moments!")
             else:
-                await message.reply("The entity encountered a temporal glitch. Please try again.")
+                await message.reply(f"System alert: `{e}`")
 
 bot.run(os.getenv("DISCORD_TOKEN"), reconnect=True)
