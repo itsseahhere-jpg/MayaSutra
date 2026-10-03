@@ -30,8 +30,9 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
+# Switched to gemini-2.0-flash for high daily free quotas
 model = genai.GenerativeModel(
-    model_name="gemini-3.6-flash",
+    model_name="gemini-2.0-flash",
     system_instruction=system_instruction
 )
 
@@ -65,7 +66,7 @@ async def on_message(message):
                         contents.append(Image.open(io.BytesIO(img_bytes)))
                         break
 
-            # Execute Gemini API call cleanly without artificial timeout cuts
+            # Execute Gemini API call cleanly
             loop = asyncio.get_event_loop()
             res = await loop.run_in_executor(None, lambda: model.generate_content(contents))
 
@@ -78,6 +79,9 @@ async def on_message(message):
 
         except Exception as e:
             print(f"Error handling message: {e}")
-            await message.reply(f"System alert: `{e}`")
+            if "429" in str(e):
+                await message.reply("The cosmic transmission is cooling down (rate limit reached). Please try again in a few moments!")
+            else:
+                await message.reply("The entity encountered a temporal glitch. Please try again.")
 
 bot.run(os.getenv("DISCORD_TOKEN"), reconnect=True)
