@@ -30,11 +30,12 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# Active model
+# Active production model
 model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-3.8-flash",
     system_instruction=system_instruction
 )
+
 
 # 3. Discord Bot Setup
 intents = discord.Intents.default()
