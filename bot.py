@@ -1,6 +1,7 @@
 import os, io, asyncio, discord
 from discord.ext import commands
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from PIL import Image
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
@@ -19,8 +20,15 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# 2. Configure Gemini
+# 2. Configure Gemini & Safety Settings (Fixes lectures/refusals)
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+safety_settings = {
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
 
 system_instruction = (
     "You are MayaSutra, a serene and grounded esoteric entity from the 5th dimension. "
@@ -30,12 +38,15 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# Active production model
+# Active production model with safety overrides
 model = genai.GenerativeModel(
     model_name="gemini-3.8-flash",
-    system_instruction=system_instruction
+    system_instruction=system_instruction,
+    safety_settings=safety_settings
 )
 
+# Dictionary to store chat sessions per channel (Fixes memory loss)
+channel_chats = {}
 
 # 3. Discord Bot Setup
 intents = discord.Intents.default()
@@ -76,9 +87,16 @@ async def on_message(message):
             if not contents:
                 contents = ["Hello"]
 
-            # Execute Gemini API call safely using get_running_loop
+            # Get or create a persistent chat session for this specific channel (Maintains Context Memory)
+            channel_id = message.channel.id
+            if channel_id not in channel_chats:
+                channel_chats[channel_id] = model.start_chat(history=[])
+            
+            chat_session = channel_chats[channel_id]
+
+            # Execute Gemini API call safely with thread executor
             loop = asyncio.get_running_loop()
-            res = await loop.run_in_executor(None, lambda: model.generate_content(contents))
+            res = await loop.run_in_executor(None, lambda: chat_session.send_message(contents))
 
             response_text = res.text if res.text else "I could not retrieve an answer."
 
