@@ -20,7 +20,7 @@ def run_http_server():
 
 threading.Thread(target=run_http_server, daemon=True).start()
 
-# 2. Configure Gemini & Safety Settings (Fixes lectures/refusals)
+# 2. Configure Gemini & Safety Settings
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 safety_settings = {
@@ -38,15 +38,14 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# FIXED: Using the official, real model name that supports chat memory and image parsing
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name="gemini-3.8-flash",
     system_instruction=system_instruction,
     safety_settings=safety_settings
 )
 
-# Dictionary to store chat sessions per channel (Fixes memory loss)
-channel_chats = {}
+# Store lightweight text-only history per channel so memory works without image bloating
+channel_histories = {}
 
 # 3. Discord Bot Setup
 intents = discord.Intents.default()
@@ -64,41 +63,39 @@ async def on_message(message):
 
     async with message.channel.typing():
         try:
-            # Clean up mentions
             clean_text = message.content.replace(f'<@{bot.user.id}>', '').strip()
             
-            # If user tagged without adding real text or an image
             if not clean_text and not message.attachments:
                 await message.reply("Greetings traveller. I am MayaSutra, listening from the 5th dimension. How may I guide your path today?")
                 return
 
-            contents = []
+            channel_id = message.channel.id
+            if channel_id not in channel_histories:
+                channel_histories[channel_id] = []
+
+            # Build current prompt payload
+            current_payload = []
             if clean_text:
-                contents.append(clean_text)
+                current_payload.append(clean_text)
 
             if message.attachments:
                 for attachment in message.attachments:
                     if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
                         img_bytes = await attachment.read()
-                        contents.append(Image.open(io.BytesIO(img_bytes)))
+                        current_payload.append(Image.open(io.BytesIO(img_bytes)))
                         break
 
-            # Fallback check to ensure payload is never empty
-            if not contents:
-                contents = ["Hello"]
+            if not current_payload:
+                current_payload = ["Hello"]
 
-            # Get or create a persistent chat session for this specific channel
-            channel_id = message.channel.id
-            if channel_id not in channel_chats:
-                channel_chats[channel_id] = model.start_chat(history=[])
-            
-            chat_session = channel_chats[channel_id]
+            # Combine past text history with the current message payload for true context memory
+            full_contents = channel_histories[channel_id] + [current_payload]
 
-            # Execute Gemini API call safely with a strict 30-second timeout to prevent infinite hanging
+            # Execute Gemini call safely with a strict 25-second timeout
             loop = asyncio.get_running_loop()
             res = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: chat_session.send_message(contents)),
-                timeout=30.0
+                loop.run_in_executor(None, lambda: model.generate_content(full_contents)),
+                timeout=25.0
             )
 
             response_text = res.text if res.text else "I could not retrieve an answer."
@@ -106,10 +103,17 @@ async def on_message(message):
             if len(response_text) > 1900:
                 response_text = response_text[:1890] + "\n\n*(Truncated due to length)*"
 
+            # Update channel text history (keeping the last 6 turns to maintain memory without bloating)
+            if clean_text:
+                channel_histories[channel_id].append(clean_text)
+                channel_histories[channel_id].append(response_text)
+                if len(channel_histories[channel_id]) > 12:  # Keep last 6 exchanges
+                    channel_histories[channel_id] = channel_histories[channel_id][-12:]
+
             await message.reply(response_text)
 
         except asyncio.TimeoutError:
-            await message.reply("The cosmic transmission took too long. Please try sending your message again.")
+            await message.reply("The cosmic transmission timed out. Please try sending your message again.")
         except Exception as e:
             print(f"Error handling message: {e}")
             if "429" in str(e):
