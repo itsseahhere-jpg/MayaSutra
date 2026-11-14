@@ -38,9 +38,9 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# Active production model with safety overrides
+# FIXED: Using the official, real model name that supports chat memory and image parsing
 model = genai.GenerativeModel(
-    model_name="gemini-3.8-flash",
+    model_name="gemini-1.5-flash",
     system_instruction=system_instruction,
     safety_settings=safety_settings
 )
@@ -87,16 +87,19 @@ async def on_message(message):
             if not contents:
                 contents = ["Hello"]
 
-            # Get or create a persistent chat session for this specific channel (Maintains Context Memory)
+            # Get or create a persistent chat session for this specific channel
             channel_id = message.channel.id
             if channel_id not in channel_chats:
                 channel_chats[channel_id] = model.start_chat(history=[])
             
             chat_session = channel_chats[channel_id]
 
-            # Execute Gemini API call safely with thread executor
+            # Execute Gemini API call safely with a strict 30-second timeout to prevent infinite hanging
             loop = asyncio.get_running_loop()
-            res = await loop.run_in_executor(None, lambda: chat_session.send_message(contents))
+            res = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: chat_session.send_message(contents)),
+                timeout=30.0
+            )
 
             response_text = res.text if res.text else "I could not retrieve an answer."
 
@@ -105,6 +108,8 @@ async def on_message(message):
 
             await message.reply(response_text)
 
+        except asyncio.TimeoutError:
+            await message.reply("The cosmic transmission took too long. Please try sending your message again.")
         except Exception as e:
             print(f"Error handling message: {e}")
             if "429" in str(e):
