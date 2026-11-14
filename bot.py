@@ -44,8 +44,8 @@ model = genai.GenerativeModel(
     safety_settings=safety_settings
 )
 
-# Store lightweight text-only history per channel so memory works without image bloating
-channel_histories = {}
+# Dictionary to store native chat sessions per channel for clean text memory
+channel_chats = {}
 
 # 3. Discord Bot Setup
 intents = discord.Intents.default()
@@ -70,45 +70,43 @@ async def on_message(message):
                 return
 
             channel_id = message.channel.id
-            if channel_id not in channel_histories:
-                channel_histories[channel_id] = []
+            if channel_id not in channel_chats:
+                channel_chats[channel_id] = model.start_chat(history=[])
+            
+            chat_session = channel_chats[channel_id]
+            loop = asyncio.get_running_loop()
 
-            # Build current prompt payload
-            current_payload = []
-            if clean_text:
-                current_payload.append(clean_text)
-
+            # Check if user attached an image (like an astrological chart)
+            has_image = False
+            img_obj = None
             if message.attachments:
                 for attachment in message.attachments:
                     if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
                         img_bytes = await attachment.read()
-                        current_payload.append(Image.open(io.BytesIO(img_bytes)))
+                        img_obj = Image.open(io.BytesIO(img_bytes))
+                        has_image = True
                         break
 
-            if not current_payload:
-                current_payload = ["Hello"]
-
-            # Combine past text history with the current message payload for true context memory
-            full_contents = channel_histories[channel_id] + [current_payload]
-
-            # Execute Gemini call safely with a strict 25-second timeout
-            loop = asyncio.get_running_loop()
-            res = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: model.generate_content(full_contents)),
-                timeout=25.0
-            )
+            # If there's an image, send it as a direct payload (prevents chat history bloat & timeouts)
+            if has_image:
+                payload = [clean_text] if clean_text else ["Analyze this chart."]
+                payload.append(img_obj)
+                
+                res = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: model.generate_content(payload)),
+                    timeout=30.0
+                )
+            else:
+                # Pure text messages use the native chat session for flawless memory
+                res = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: chat_session.send_message(clean_text)),
+                    timeout=25.0
+                )
 
             response_text = res.text if res.text else "I could not retrieve an answer."
 
             if len(response_text) > 1900:
                 response_text = response_text[:1890] + "\n\n*(Truncated due to length)*"
-
-            # Update channel text history (keeping the last 6 turns to maintain memory without bloating)
-            if clean_text:
-                channel_histories[channel_id].append(clean_text)
-                channel_histories[channel_id].append(response_text)
-                if len(channel_histories[channel_id]) > 12:  # Keep last 6 exchanges
-                    channel_histories[channel_id] = channel_histories[channel_id][-12:]
 
             await message.reply(response_text)
 
