@@ -38,14 +38,15 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
+# Using the real, officially supported production model
 model = genai.GenerativeModel(
-    model_name="gemini-3.8-flash",
+    model_name="gemini-1.5-flash",
     system_instruction=system_instruction,
     safety_settings=safety_settings
 )
 
-# Dictionary to store native chat sessions per channel for clean text memory
-channel_chats = {}
+channel_histories = {}
+active_channels = set()
 
 # 3. Discord Bot Setup
 intents = discord.Intents.default()
@@ -61,62 +62,67 @@ async def on_message(message):
     if message.author == bot.user or not bot.user.mentioned_in(message):
         return
 
-    async with message.channel.typing():
-        try:
-            clean_text = message.content.replace(f'<@{bot.user.id}>', '').strip()
+    channel_id = message.channel.id
+    if channel_id in active_channels:
+        return
+
+    active_channels.add(channel_id)
+    try:
+        async with message.channel.typing():
+            clean_text = str(message.content.replace(f'<@{bot.user.id}>', '').strip())
             
             if not clean_text and not message.attachments:
                 await message.reply("Greetings traveller. I am MayaSutra, listening from the 5th dimension. How may I guide your path today?")
                 return
 
-            channel_id = message.channel.id
-            if channel_id not in channel_chats:
-                channel_chats[channel_id] = model.start_chat(history=[])
-            
-            chat_session = channel_chats[channel_id]
-            loop = asyncio.get_running_loop()
+            if channel_id not in channel_histories:
+                channel_histories[channel_id] = []
 
-            # Check if user attached an image (like an astrological chart)
-            has_image = False
-            img_obj = None
+            history_snippets = channel_histories[channel_id]
+            context_block = "\n".join(history_snippets)
+            
+            prompt_content = []
+            if context_block:
+                prompt_content.append(f"Recent conversation context:\n{context_block}\n\nUser: {clean_text}")
+            else:
+                prompt_content.append(clean_text if clean_text else "Hello")
+
             if message.attachments:
                 for attachment in message.attachments:
                     if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
                         img_bytes = await attachment.read()
-                        img_obj = Image.open(io.BytesIO(img_bytes))
-                        has_image = True
+                        prompt_content.append(Image.open(io.BytesIO(img_bytes)))
                         break
 
-            # If there's an image, send it as a direct payload (prevents chat history bloat & timeouts)
-            if has_image:
-                payload = [clean_text] if clean_text else ["Analyze this chart."]
-                payload.append(img_obj)
-                
-                res = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: model.generate_content(payload)),
-                    timeout=30.0
-                )
-            else:
-                # Pure text messages use the native chat session for flawless memory
-                res = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: chat_session.send_message(clean_text)),
-                    timeout=25.0
-                )
+            loop = asyncio.get_running_loop()
+            res = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: model.generate_content(prompt_content)),
+                timeout=20.0
+            )
 
             response_text = res.text if res.text else "I could not retrieve an answer."
 
             if len(response_text) > 1900:
                 response_text = response_text[:1890] + "\n\n*(Truncated due to length)*"
 
+            channel_histories[channel_id].append(f"User: {clean_text}")
+            channel_histories[channel_id].append(f"MayaSutra: {response_text}")
+            if len(channel_histories[channel_id]) > 4:
+                channel_histories[channel_id] = channel_histories[channel_id][-4:]
+
             await message.reply(response_text)
 
-        except asyncio.TimeoutError:
-            await message.reply("The cosmic transmission timed out. Please try sending your message again.")
-        except Exception as e:
-            print(f"Error handling message: {e}")
-            if "429" in str(e):
-                await message.reply("The cosmic transmission is cooling down (rate limit reached). Please try again in a few moments!")
-            else:
-                await message.reply(f"System alert: `{e}`")
+    except asyncio.TimeoutError:
+        await message.reply("The cosmic transmission timed out. Please try sending your message again.")
+    except Exception as e:
+        print(f"Error handling message: {e}")
+        if "429" in str(e):
+            if channel_id in channel_histories:
+                channel_histories[channel_id] = []
+            await message.reply("The cosmic transmission hit a rate threshold and cleared its cache. Try your message again now!")
+        else:
+            await message.reply(f"System alert: `{e}`")
+    finally:
+        active_channels.discard(channel_id)
 
 bot.run(os.getenv("DISCORD_TOKEN"), reconnect=True)
