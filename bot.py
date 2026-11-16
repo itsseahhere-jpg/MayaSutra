@@ -38,31 +38,14 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# AUTOMATIC MODEL DISCOVERY: Queries your API key live to find a working model name
-def get_supported_model():
-    try:
-        print("Scanning available models for your API key...")
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                print(f"Found supported model: {m.name}")
-                if 'flash' in m.name.lower():
-                    return m.name
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                return m.name
-    except Exception as e:
-        print(f"Model scan error: {e}")
-    return "gemini-pro"
-
-SELECTED_MODEL = get_supported_model()
-print(f"Successfully locked onto model: {SELECTED_MODEL}")
-
+# Using the exact model name Google's API explicitly requested
 model = genai.GenerativeModel(
-    model_name=SELECTED_MODEL,
+    model_name="gemini-3.8-flash",
     system_instruction=system_instruction,
     safety_settings=safety_settings
 )
 
+# Lightweight rolling history & concurrency locks
 channel_histories = {}
 active_channels = set()
 
