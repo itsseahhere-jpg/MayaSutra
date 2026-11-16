@@ -38,14 +38,12 @@ system_instruction = (
     "3. Current Year: 2026. Account for current planetary movements accurately for 2026."
 )
 
-# Using the exact model name Google's API explicitly requested
 model = genai.GenerativeModel(
     model_name="gemini-3.8-flash",
     system_instruction=system_instruction,
     safety_settings=safety_settings
 )
 
-# Lightweight rolling history & concurrency locks
 channel_histories = {}
 active_channels = set()
 
@@ -96,9 +94,18 @@ async def on_message(message):
                         break
 
             loop = asyncio.get_running_loop()
+            
+            # FAST THINKING CONFIG: Forces low thinking level so responses arrive instantly, 
+            # with a safe 60-second window in case a chart image is being parsed.
             res = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: model.generate_content(prompt_content)),
-                timeout=20.0
+                loop.run_in_executor(
+                    None, 
+                    lambda: model.generate_content(
+                        prompt_content, 
+                        generation_config={"thinking_level": "low"}
+                    )
+                ),
+                timeout=60.0
             )
 
             response_text = res.text if res.text else "I could not retrieve an answer."
